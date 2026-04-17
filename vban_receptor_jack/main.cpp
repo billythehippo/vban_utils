@@ -34,6 +34,8 @@ int main(int argc, char *argv[])
     stream.vban_output_format = VBAN_BITFMT_32_FLOAT;
     stream.samplerate = 48000;
     stream.iprx = 0;
+    stream.flags|= CORRECTION_ON;
+    stream.lagrange_num = 3;
 
     if (get_receptor_options(&stream, argc, argv)) return 1;
     vban_fill_receptor_info(&stream);
@@ -47,6 +49,8 @@ int main(int argc, char *argv[])
             return 1;
         }
         stream.pd[0].fd = stream.rxsock->fd;
+        int socketflags = SOF_TIMESTAMPING_SOFTWARE | SOF_TIMESTAMPING_TX_HARDWARE | SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_RAW_HARDWARE | SOF_TIMESTAMPING_OPT_ID;
+        setsockopt(stream.rxsock->fd, SOL_SOCKET, SO_TIMESTAMPING, &socketflags, sizeof(socketflags));
     }
     else // PIPE rx mode
     {
@@ -235,25 +239,41 @@ int main(int argc, char *argv[])
         if ((stream.iptx!=0)&&(stream.rxport!=0)) fprintf(stderr, "Getting incoming stream from %d.%d.%d.%d:%d\r\n", ((uint8_t*)&stream.iptx)[0], ((uint8_t*)&stream.iptx)[1], ((uint8_t*)&stream.iptx)[2], ((uint8_t*)&stream.iptx)[3], stream.rxport);
         // stream.rxbuflen = stream.nframes*stream.nboutputs;
         // stream.rxbuf = (float*)malloc(stream.rxbuflen*sizeof(float));
-        if (stream.samplerate_resampler!= stream.samplerate)
-        {
-            if (stream.resampler_inbuf!=nullptr) free(stream.resampler_inbuf);
-            if (stream.resampler_outbuf!=nullptr) free(stream.resampler_outbuf);
+        // if (stream.samplerate_resampler!= stream.samplerate)
+        // {
+        //     if (stream.resampler_inbuf!=nullptr) free(stream.resampler_inbuf);
+        //     if (stream.resampler_outbuf!=nullptr) free(stream.resampler_outbuf);
 
-            stream.resampler = new VResampler();
-            if (stream.resampler->setup((double)stream.samplerate/(double)stream.samplerate_resampler, stream.nboutputs, 64))
-            {
-                fprintf (stderr, "Resampler can't handle the ratio\r\n");
-                exit(1);
-            }
-            stream.resampler->inp_count = stream.resampler->inpsize() - 1;
-            stream.resampler->inp_data = 0;
-            stream.resampler->out_count = 999999;
-            stream.resampler->out_data = 0;
-            stream.resampler->process();
+        //     stream.resampler = new VResampler();
+        //     if (stream.resampler->setup((double)stream.samplerate/(double)stream.samplerate_resampler, stream.nboutputs, 64))
+        //     {
+        //         fprintf (stderr, "Resampler can't handle the ratio\r\n");
+        //         exit(1);
+        //     }
+        //     stream.resampler->inp_count = stream.resampler->inpsize() - 1;
+        //     stream.resampler->inp_data = 0;
+        //     stream.resampler->out_count = 999999;
+        //     stream.resampler->out_data = 0;
+        //     stream.resampler->process();
+        // }
+
+        if (stream.resampler_inbuf!=nullptr) free(stream.resampler_inbuf);
+        if (stream.resampler_outbuf!=nullptr) free(stream.resampler_outbuf);
+
+        stream.resampler = new VResampler();
+        if (stream.resampler->setup((double)stream.samplerate/(double)stream.samplerate_resampler, stream.nboutputs, 64))
+        {
+            fprintf (stderr, "Resampler can't handle the ratio\r\n");
+            exit(1);
         }
-        vban_compute_rx_buffer(1, stream.nboutputs, &stream.rxbuf, &stream.rxbuflen);
-        vban_compute_rx_ringbuffer(stream.nframes, 0, stream.nboutputs, 0, &stream.ringbuffer);
+        stream.resampler->inp_count = stream.resampler->inpsize() - 1;
+        stream.resampler->inp_data = 0;
+        stream.resampler->out_count = 999999;
+        stream.resampler->out_data = 0;
+        stream.resampler->process();
+
+        vban_compute_rx_buffer(stream.nframes + stream.lagrange_num, stream.nboutputs, &stream.rxbuf, &stream.rxbuflen);
+        vban_compute_rx_ringbuffer(stream.nframes, 0, stream.nboutputs, stream.redundancy, &stream.ringbuffer);
         stream.ringbuffer_midi = ringbuffer_create(300); // El Magico!
 
         //Run stream
