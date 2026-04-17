@@ -35,6 +35,8 @@ int main(int argc, char *argv[])
     stream.vban_output_format = VBAN_BITFMT_32_FLOAT;
     stream.samplerate = 48000;
     stream.iprx = 0;
+    stream.flags|= CORRECTION_ON;
+    stream.lagrange_num = 3;
 
     if (get_receptor_options(&stream, argc, argv)) return 1;
     vban_fill_receptor_info(&stream);
@@ -227,28 +229,45 @@ int main(int argc, char *argv[])
         pthread_mutex_unlock(&stream.cmdmutex.threadlock);
 
         if ((stream.iptx!=0)&&(stream.rxport!=0)) fprintf(stderr, "Getting incoming stream from %d.%d.%d.%d:%d\r\n", ((uint8_t*)&stream.iptx)[0], ((uint8_t*)&stream.iptx)[1], ((uint8_t*)&stream.iptx)[2], ((uint8_t*)&stream.iptx)[3], stream.rxport);
-        if (stream.samplerate_resampler!= stream.samplerate)
-        {
-            if (stream.resampler_inbuf!=nullptr) free(stream.resampler_inbuf);
-            if (stream.resampler_outbuf!=nullptr) free(stream.resampler_outbuf);
 
-            stream.resampler = new VResampler();
-            fprintf (stderr, "Warning: samplerate mismatch!\r\nBackend: %d\r\nIncoming: %d\r\nUsing Resampler!!!\r\n", stream.samplerate, stream.samplerate_resampler);
-            if (stream.resampler->setup((double)stream.samplerate/(double)stream.samplerate_resampler, stream.nboutputs, 64))
-            {
-                fprintf (stderr, "Resampler can't handle the ratio\r\n");
-                CLEANUP();
-                exit(1);
-            }
-            stream.resampler->inp_count = stream.resampler->inpsize() - 1;
-            stream.resampler->inp_data = 0;
-            stream.resampler->out_count = 999999;
-            stream.resampler->out_data = 0;
-            stream.resampler->process();
-            fprintf (stderr, "Warning: samplerate mismatch!\r\nBackend: %d\r\nIncoming: %d\r\nUsing Resampler!!!\r\n", stream.samplerate, stream.samplerate_resampler);
+        if (stream.resampler_inbuf!=nullptr) free(stream.resampler_inbuf);
+        if (stream.resampler_outbuf!=nullptr) free(stream.resampler_outbuf);
+
+        stream.resampler = new VResampler();
+        if (stream.resampler->setup((double)stream.samplerate/(double)stream.samplerate_resampler, stream.nboutputs, 64))
+        {
+            fprintf (stderr, "Resampler can't handle the ratio\r\n");
+            CLEANUP();
+            exit(1);
         }
+        stream.resampler->inp_count = stream.resampler->inpsize() - 1;
+        stream.resampler->inp_data = 0;
+        stream.resampler->out_count = 999999;
+        stream.resampler->out_data = 0;
+        stream.resampler->process();
+
+        // if (stream.samplerate_resampler!= stream.samplerate)
+        // {
+        //     if (stream.resampler_inbuf!=nullptr) free(stream.resampler_inbuf);
+        //     if (stream.resampler_outbuf!=nullptr) free(stream.resampler_outbuf);
+        //
+        //     stream.resampler = new VResampler();
+        //     fprintf (stderr, "Warning: samplerate mismatch!\r\nBackend: %d\r\nIncoming: %d\r\nUsing Resampler!!!\r\n", stream.samplerate, stream.samplerate_resampler);
+        //     if (stream.resampler->setup((double)stream.samplerate/(double)stream.samplerate_resampler, stream.nboutputs, 64))
+        //     {
+        //         fprintf (stderr, "Resampler can't handle the ratio\r\n");
+        //         CLEANUP();
+        //         exit(1);
+        //     }
+        //     stream.resampler->inp_count = stream.resampler->inpsize() - 1;
+        //     stream.resampler->inp_data = 0;
+        //     stream.resampler->out_count = 999999;
+        //     stream.resampler->out_data = 0;
+        //     stream.resampler->process();
+        //     fprintf (stderr, "Warning: samplerate mismatch!\r\nBackend: %d\r\nIncoming: %d\r\nUsing Resampler!!!\r\n", stream.samplerate, stream.samplerate_resampler);
+        // }
         vban_compute_rx_buffer(stream.nframes, stream.nboutputs, &stream.rxbuf, &stream.rxbuflen);
-        vban_compute_rx_ringbuffer(stream.nframes, 0, stream.nboutputs, 0, &stream.ringbuffer);
+        vban_compute_rx_ringbuffer(stream.nframes, 0, stream.nboutputs, stream.redundancy, &stream.ringbuffer);
 
         //Create stream
         pw_stream_data_t data = { 0, };
