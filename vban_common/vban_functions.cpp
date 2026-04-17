@@ -4,6 +4,7 @@
 
 void tune_tx_packets(vban_stream_context_t* stream)
 {
+    volatile uint16_t max_packet_frames;
     stream->pacnum = 1;
     stream->vban_nframes_pac = stream->nframes;
     stream->txbuflen = stream->nframes * stream->nbinputs * VBanBitResolutionSize[stream->vban_output_format];
@@ -11,13 +12,36 @@ void tune_tx_packets(vban_stream_context_t* stream)
     stream->txbuf = (char*)malloc(stream->txbuflen);
     memset(stream->txbuf, 0, stream->txbuflen);
     stream->pacdatalen = stream->txbuflen;
-    while((stream->pacdatalen > VBAN_DATA_MAX_SIZE)||(stream->vban_nframes_pac > VBAN_SAMPLES_MAX_NB))
+    if (stream->flags&SLICING)
+    {
+        if (stream->samplerate < 88200) stream->tx_nframes = 64;
+        else if (stream->samplerate < 176400) stream->tx_nframes = 128;
+        else if (stream->samplerate < 352800) stream->tx_nframes = 256;
+        else
+        {
+            stream->tx_nframes = VBAN_SAMPLES_MAX_NB;
+            fprintf(stderr, "Samplerate is too large for SLICING mode");
+            stream->flags&=~SLICING;
+        }
+        max_packet_frames = stream->tx_nframes;
+    }
+    else
+    {
+        max_packet_frames = VBAN_SAMPLES_MAX_NB;
+    }
+    while((stream->pacdatalen > VBAN_DATA_MAX_SIZE)||(stream->vban_nframes_pac > max_packet_frames))
     {
         stream->pacnum = stream->pacnum * 2;
         stream->vban_nframes_pac = stream->vban_nframes_pac / 2;
         stream->pacdatalen = stream->pacdatalen / 2;
     }
     stream->txpacket.header.format_nbs = stream->vban_nframes_pac - 1;
+    if (stream->flags&SLICING)
+    {
+        stream->tx_transactions = stream->nframes / stream->tx_nframes;
+        stream->pacnum_t32 = stream->pacnum * stream->tx_nframes / stream->nframes;
+        stream->slice_period = (uint32_t)((uint64_t)stream->tx_nframes * 1000000000 / stream->samplerate + 1);
+    }
 }
 
 
@@ -37,6 +61,41 @@ void vban_fill_receptor_info(vban_stream_context_t* context)
     }
     sprintf(context->info.data+strlen(context->info.data), "samplerate=%d format=%d flags=%d", context->samplerate, context->vban_output_format, context->flags);
 }
+
+
+#ifdef __linux__
+#include <sys/epoll.h>
+#include <sys/timerfd.h>
+#define TARGET_CPU 1
+#define INTERVAL_NS 333333
+#define PERIOD_NS 666666
+
+void reset_timer(int* timerfd, uint64_t delay_sec, uint64_t delay_nsec, uint64_t period_sec, uint64_t period_nsec)
+{
+    struct itimerspec ts;
+    ts.it_interval.tv_sec   = period_sec;
+    ts.it_interval.tv_nsec  = period_nsec;
+    ts.it_value.tv_sec      = delay_sec;
+    ts.it_value.tv_nsec     = delay_nsec;
+
+    int err = timerfd_settime(*timerfd, 0, &ts, NULL);
+
+    if ((delay_sec|delay_nsec|period_sec|period_nsec)==0)
+    {
+        if (err == -1)
+            fprintf(stderr, "Cannot stop timer...\r\n");
+        // else
+        //     fprintf(stderr, "Timer on fd %d successfully stopped\r\n", *timerfd);
+    }
+    else
+    {
+        if (err == -1)
+            fprintf(stderr, "Cannot change timer parameters...\r\n");
+        // else
+        //     fprintf(stderr, "Timer on fd %d has been successfully reset\r\n", *timerfd);
+    }
+}
+#endif
 
 
 void* timerThread(void* arg)
@@ -83,6 +142,7 @@ void* timerThread(void* arg)
 
 void* rxThread(void* arg)
 {
+    timespec ts;
     vban_stream_context_t* stream = (vban_stream_context_t*)arg;
     VBanPacket packet;
     int packetlen;
@@ -96,9 +156,11 @@ void* rxThread(void* arg)
     {
         while ((poll(stream->pd, 1, 100))&&((stream->flags&RECEIVING)==RECEIVING))
         {
+            clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
             if (stream->rxport!=0) // UDP
             {
-                packetlen = udp_recv(stream->rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE);
+                //packetlen = udp_recv(stream->rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE);
+                packetlen = udp_recv_m(stream->rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE, &stream->input_ts);
                 ip_in = stream->rxsock->c_addr.sin_addr.s_addr;
                 stream->ansport = htons(stream->rxsock->c_addr.sin_port);
                 if (((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_AUDIO)||((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_SERIAL))
@@ -117,6 +179,7 @@ void* rxThread(void* arg)
             }
             else
             {
+                stream->input_ts = ts;
                 packetlen = read(stream->pd[0].fd, &packet, VBAN_HEADER_SIZE);
                 if (((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_AUDIO)||((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_TXT))
                 {

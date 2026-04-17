@@ -1,4 +1,6 @@
 #include "pipewire_backend.h"
+#include "vban_functions.h"
+#include <cstdint>
 
 mutexcond_t rx_run_mutex;
 
@@ -57,7 +59,7 @@ void help_receptor(void)
     fprintf(stderr, "-n - redundancy 1 to 10 (\"net quality\")\r\n");
     fprintf(stderr, "-d - device mode for pipewire ports\r\n");
     //fprintf(stderr, "-f - format: 16, 24, 32f\r\n");
-    fprintf(stderr, "-e - enable frame plucking\r\n");
+    fprintf(stderr, "-e - enable correction\r\n");
     fprintf(stderr, "-h - show this help\r\n");
     exit(0);
 }
@@ -230,8 +232,8 @@ int get_receptor_options(vban_stream_context_t* stream, int argc, char *argv[])
         case 'f':
             break;
         case 'e':
-            if ((optarg[0]!='0')&&(optarg[0]!='n')&&(optarg[0]!='N')) stream->flags|= PLUCKING_EN;
-            else stream->flags&=~PLUCKING_EN;
+            if ((optarg[0]!='0')&&(optarg[0]!='n')&&(optarg[0]!='N')) stream->flags|= CORRECTION_ON;
+            else stream->flags&=~CORRECTION_ON;
             break;
         case 'h':
             help_receptor();
@@ -303,6 +305,14 @@ static void on_rx_process(void *userdata)
     size_t bufreadspace;
     uint16_t frame;
     uint16_t lost = 0;
+    uint8_t corr = 0;
+
+    stride = (context->nboutputs)*sizeof(float); //sizeof(float) * DEFAULT_CHANNELS;
+    if (stride==0)
+        return;
+
+    if (context->flags&CORRECTION_ON)
+        correct_samplerate(context, stride, &data->callback_delta);
 
     if ((b = pw_stream_dequeue_buffer(data->stream)) == NULL)
     {
@@ -315,22 +325,18 @@ static void on_rx_process(void *userdata)
     if (samples_ptr == NULL)
         return;
 
-    stride = (context->nboutputs)*sizeof(float); //sizeof(float) * DEFAULT_CHANNELS;
-    if (stride==0)
-        return;
-
     n_frames = buf->datas[0].maxsize / stride;
     if (b->requested) n_frames = SPA_MIN((int)b->requested, n_frames);
 
-    if (n_frames!=context->nframes)
+    if ((n_frames!=context->nframes)||(context->ringbuffer == NULL))
     {
         context->nframes = n_frames;
         vban_compute_rx_buffer(n_frames, context->nboutputs, &context->rxbuf, &context->rxbuflen);
-        vban_compute_rx_ringbuffer(n_frames, context->vban_nframes_pac, context->nboutputs, context->redundancy, &context->ringbuffer);
+        if (context->flags&CORRECTION_ON) corr = context->redundancy;
+        //fprintf(stderr, "Red %d, corr %d\r\n", context->redundancy, corr);
+        vban_compute_rx_ringbuffer(n_frames, context->vban_nframes_pac, context->nboutputs, context->redundancy, &context->ringbuffer, corr);
         fprintf(stderr, "Warning: buffer size is changed to %d!\n", n_frames);
     }
-
-    do_async_plucking(context);
 
     read_from_ringbuffer_async(context);
 

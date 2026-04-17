@@ -131,6 +131,16 @@ udpc_t* udp_init(uint16_t rx_port, uint16_t tx_port, char* __restrict rx_ip, cha
         setsockopt(c->fd, SOL_SOCKET, SO_PRIORITY, (const char*)&prio, sizeof(prio));
         fprintf(stderr, "Socket Priority is %d\n", prio);
     }
+
+    int tsflags = SOF_TIMESTAMPING_TX_SOFTWARE |
+                SOF_TIMESTAMPING_TX_HARDWARE |
+                SOF_TIMESTAMPING_SOFTWARE |
+                SOF_TIMESTAMPING_RAW_HARDWARE |
+                SOF_TIMESTAMPING_OPT_ID;
+    if (setsockopt(c->fd, SOL_SOCKET, SO_TIMESTAMPING, &tsflags, sizeof(tsflags)) < 0)
+    {
+        fprintf(stderr, "Can't switch timestamping on SO_TIMESTAMPING\r\n");
+    }
 #endif
     //
     if(rx_port!= 0)
@@ -167,6 +177,9 @@ udpc_t* udp_init(uint16_t rx_port, uint16_t tx_port, char* __restrict rx_ip, cha
     //
     return c;
 }
+
+
+
 
 
 int set_recverr(int fd)

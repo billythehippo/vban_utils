@@ -18,6 +18,7 @@ typedef struct
     struct pw_main_loop *loop;
     struct pw_stream *stream;
     struct spa_audio_info format;
+    struct timestamp_delta callback_delta;
     void* user_data;
 } pw_stream_data_t;
 
