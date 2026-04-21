@@ -1,19 +1,19 @@
 /*
   Copyright (C) 2000 Paul Davis
   Copyright (C) 2003 Rohan Drape
-  
+
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published by
   the Free Software Foundation; either version 2.1 of the License, or
   (at your option) any later version.
-  
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU Lesser General Public License for more details.
-  
+
   You should have received a copy of the GNU Lesser General Public License
-  along with this program; if not, write to the Free Software 
+  along with this program; if not, write to the Free Software
   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 */
@@ -77,14 +77,15 @@ ringbuffer_t ;
  */
 __always_inline ringbuffer_t *ringbuffer_create(size_t sz)
 {
-    int power_of_two;
+    //int power_of_two;
     ringbuffer_t *rb;
 
     if ((rb = (ringbuffer_t*)malloc(sizeof(ringbuffer_t))) == NULL) return NULL;
 
-    for (power_of_two = 1; 1 << power_of_two < sz; power_of_two++) ;
+    //for (power_of_two = 1; 1 << power_of_two < sz; power_of_two++) ;
 
-    rb->size = 1 << power_of_two;
+    //rb->size = 1 << power_of_two;
+    rb->size = sz;
     rb->size_mask = rb->size;
     rb->size_mask -= 1;
     rb->write_ptr = 0;
@@ -131,7 +132,7 @@ __always_inline size_t ringbuffer_read_space (const ringbuffer_t * rb)
     r = rb->read_ptr;
 
     if (w > r) return w - r;
-    else return (w - r + rb->size) & rb->size_mask;
+    else return (w - r + rb->size) % rb->size;
 }
 
 
@@ -185,7 +186,7 @@ __always_inline void ringbuffer_get_read_vector(const ringbuffer_t *rb, ringbuff
     r = rb->read_ptr;
 
     if (w > r) free_cnt = w - r;
-    else free_cnt = (w - r + rb->size) & rb->size_mask;
+    else free_cnt = (w - r + rb->size) % rb->size;
 
     cnt2 = r + free_cnt;
 
@@ -194,7 +195,7 @@ __always_inline void ringbuffer_get_read_vector(const ringbuffer_t *rb, ringbuff
         vec[0].buf = &(rb->buf[r]);
         vec[0].len = rb->size - r;
         vec[1].buf = rb->buf;
-        vec[1].len = cnt2 & rb->size_mask;
+        vec[1].len = cnt2 % rb->size;
 
     }
     else // Single part vector: just the rest of the buffer.
@@ -245,7 +246,7 @@ __always_inline void ringbuffer_get_write_vector(const ringbuffer_t *rb, ringbuf
         vec[0].buf = &(rb->buf[w]);
         vec[0].len = rb->size - w;
         vec[1].buf = rb->buf;
-        vec[1].len = cnt2 & rb->size_mask;
+        vec[1].len = cnt2 % rb->size;
     }
     else
     {
@@ -282,7 +283,7 @@ __always_inline size_t ringbuffer_read(ringbuffer_t *rb, char *dest, size_t cnt)
     if (cnt2 > rb->size)
     {
         n1 = rb->size - rb->read_ptr;
-        n2 = cnt2 & rb->size_mask;
+        n2 = cnt2 % rb->size;
     }
     else
     {
@@ -291,12 +292,12 @@ __always_inline size_t ringbuffer_read(ringbuffer_t *rb, char *dest, size_t cnt)
     }
 
     memcpy (dest, &(rb->buf[rb->read_ptr]), n1);
-    rb->read_ptr = (rb->read_ptr + n1) & rb->size_mask;
+    rb->read_ptr = (rb->read_ptr + n1) % rb->size;
 
     if (n2)
     {
         memcpy (dest + n1, &(rb->buf[rb->read_ptr]), n2);
-        rb->read_ptr = (rb->read_ptr + n2) & rb->size_mask;
+        rb->read_ptr = (rb->read_ptr + n2) % rb->size;
     }
 
     return to_read;
@@ -336,7 +337,7 @@ __always_inline size_t ringbuffer_peek(ringbuffer_t *rb, char *dest, size_t cnt)
     if (cnt2 > rb->size)
     {
         n1 = rb->size - tmp_read_ptr;
-        n2 = cnt2 & rb->size_mask;
+        n2 = cnt2 % rb->size;
     }
     else
     {
@@ -345,7 +346,7 @@ __always_inline size_t ringbuffer_peek(ringbuffer_t *rb, char *dest, size_t cnt)
     }
 
     memcpy (dest, &(rb->buf[tmp_read_ptr]), n1);
-    tmp_read_ptr = (tmp_read_ptr + n1) & rb->size_mask;
+    tmp_read_ptr = (tmp_read_ptr + n1) % rb->size;
 
     if (n2) memcpy (dest + n1, &(rb->buf[tmp_read_ptr]), n2);
 
@@ -366,7 +367,7 @@ __always_inline size_t ringbuffer_peek(ringbuffer_t *rb, char *dest, size_t cnt)
  */
 __always_inline void ringbuffer_read_advance(ringbuffer_t *rb, size_t cnt)
 {
-    size_t tmp = (rb->read_ptr + cnt) & rb->size_mask;
+    size_t tmp = (rb->read_ptr + cnt) % rb->size;
 
     rb->read_ptr = tmp;
 }
@@ -428,7 +429,7 @@ __always_inline size_t ringbuffer_write(ringbuffer_t *rb, const char *src, size_
     if (cnt2 > rb->size)
     {
         n1 = rb->size - rb->write_ptr;
-        n2 = cnt2 & rb->size_mask;
+        n2 = cnt2 % rb->size;
     }
     else
     {
@@ -437,12 +438,12 @@ __always_inline size_t ringbuffer_write(ringbuffer_t *rb, const char *src, size_
     }
 
     memcpy (&(rb->buf[rb->write_ptr]), src, n1);
-    rb->write_ptr = (rb->write_ptr + n1) & rb->size_mask;
+    rb->write_ptr = (rb->write_ptr + n1) % rb->size;
 
     if (n2)
     {
         memcpy (&(rb->buf[rb->write_ptr]), src + n1, n2);
-        rb->write_ptr = (rb->write_ptr + n2) & rb->size_mask;
+        rb->write_ptr = (rb->write_ptr + n2) % rb->size;
     }
 
     return to_write;
@@ -462,7 +463,7 @@ __always_inline size_t ringbuffer_write(ringbuffer_t *rb, const char *src, size_
  */
 __always_inline void ringbuffer_write_advance(ringbuffer_t *rb, size_t cnt)
 {
-    size_t tmp = (rb->write_ptr + cnt) & rb->size_mask;
+    size_t tmp = (rb->write_ptr + cnt) % rb->size;
 
     rb->write_ptr = tmp;
 }
