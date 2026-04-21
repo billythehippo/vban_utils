@@ -1,6 +1,7 @@
 /*
-  Copyright (C) 2000 Paul Davis
-  Copyright (C) 2003 Rohan Drape
+  RingBuffer by Billy the Hippo, a fork of the one by
+  Paul Davis and 2003 Rohan Drape
+  (INLINE version)
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published by
@@ -59,7 +60,7 @@ typedef struct
     volatile size_t write_ptr;
     volatile size_t read_ptr;
     size_t	size;
-    size_t	size_mask;
+    //size_t	size_mask;
     int	mlocked;
 }
 ringbuffer_t ;
@@ -86,8 +87,8 @@ __always_inline ringbuffer_t *ringbuffer_create(size_t sz)
 
     //rb->size = 1 << power_of_two;
     rb->size = sz;
-    rb->size_mask = rb->size;
-    rb->size_mask -= 1;
+    //rb->size_mask = rb->size;
+    //rb->size_mask -= 1;
     rb->write_ptr = 0;
     rb->read_ptr = 0;
     if ((rb->buf = (char*)malloc(rb->size)) == NULL)
@@ -150,7 +151,7 @@ __always_inline size_t ringbuffer_write_space (const ringbuffer_t * rb)
     w = rb->write_ptr;
     r = rb->read_ptr;
 
-    if (w > r) return ((r - w + rb->size) & rb->size_mask) - 1;
+    if (w > r) return ((r - w + rb->size) % rb->size) - 1;
     else if (w < r) return (r - w) - 1;
     else return rb->size - 1;
 }
@@ -235,7 +236,7 @@ __always_inline void ringbuffer_get_write_vector(const ringbuffer_t *rb, ringbuf
     w = rb->write_ptr;
     r = rb->read_ptr;
 
-    if (w > r) free_cnt = ((r - w + rb->size) & rb->size_mask) - 1;
+    if (w > r) free_cnt = ((r - w + rb->size) % rb->size) - 1;
     else if (w < r) free_cnt = (r - w) - 1;
     else free_cnt = rb->size - 1;
 
