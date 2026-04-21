@@ -76,7 +76,7 @@ ringbuffer_t ;
  * @return a pointer to a new ringbuffer_t, if successful; NULL
  * otherwise.
  */
-__always_inline ringbuffer_t *ringbuffer_create(size_t sz)
+inline ringbuffer_t *ringbuffer_create(size_t sz)
 {
     //int power_of_two;
     ringbuffer_t *rb;
@@ -125,7 +125,7 @@ __always_inline void ringbuffer_free(ringbuffer_t *rb)
  *
  * @return the number of bytes available to read.
  */
-__always_inline size_t ringbuffer_read_space (const ringbuffer_t * rb)
+inline size_t ringbuffer_read_space (const ringbuffer_t * rb)
 {
     size_t w, r;
 
@@ -144,7 +144,7 @@ __always_inline size_t ringbuffer_read_space (const ringbuffer_t * rb)
  *
  * @return the amount of free space (in bytes) available for writing.
  */
-__always_inline size_t ringbuffer_write_space (const ringbuffer_t * rb)
+inline size_t ringbuffer_write_space (const ringbuffer_t * rb)
 {
     size_t w, r;
 
@@ -177,7 +177,7 @@ __always_inline size_t ringbuffer_write_space (const ringbuffer_t * rb)
  * @param vec a pointer to a 2 element array of ringbuffer_data_t.
  *
  */
-__always_inline void ringbuffer_get_read_vector(const ringbuffer_t *rb, ringbuffer_data_t *vec)
+inline void ringbuffer_get_read_vector(const ringbuffer_t *rb, ringbuffer_data_t *vec)
 {
     size_t free_cnt;
     size_t cnt2;
@@ -227,7 +227,7 @@ __always_inline void ringbuffer_get_read_vector(const ringbuffer_t *rb, ringbuff
  * @param rb a pointer to the ringbuffer structure.
  * @param vec a pointer to a 2 element array of ringbuffer_data_t.
  */
-__always_inline void ringbuffer_get_write_vector(const ringbuffer_t *rb, ringbuffer_data_t *vec)
+inline void ringbuffer_get_write_vector(const ringbuffer_t *rb, ringbuffer_data_t *vec)
 {
     size_t free_cnt;
     size_t cnt2;
@@ -268,7 +268,7 @@ __always_inline void ringbuffer_get_write_vector(const ringbuffer_t *rb, ringbuf
  *
  * @return the number of bytes read, which may range from 0 to cnt.
  */
-__always_inline size_t ringbuffer_read(ringbuffer_t *rb, char *dest, size_t cnt)
+inline size_t ringbuffer_read(ringbuffer_t *rb, char *dest, size_t cnt)
 {
     size_t free_cnt;
     size_t cnt2;
@@ -319,7 +319,7 @@ __always_inline size_t ringbuffer_read(ringbuffer_t *rb, char *dest, size_t cnt)
  *
  * @return the number of bytes read, which may range from 0 to cnt.
  */
-__always_inline size_t ringbuffer_peek(ringbuffer_t *rb, char *dest, size_t cnt)
+inline size_t ringbuffer_peek(ringbuffer_t *rb, char *dest, size_t cnt)
 {
     size_t free_cnt;
     size_t cnt2;
@@ -366,7 +366,7 @@ __always_inline size_t ringbuffer_peek(ringbuffer_t *rb, char *dest, size_t cnt)
  * @param rb a pointer to the ringbuffer structure.
  * @param cnt the number of bytes read.
  */
-__always_inline void ringbuffer_read_advance(ringbuffer_t *rb, size_t cnt)
+inline void ringbuffer_read_advance(ringbuffer_t *rb, size_t cnt)
 {
     size_t tmp = (rb->read_ptr + cnt) % rb->size;
 
@@ -381,7 +381,7 @@ __always_inline void ringbuffer_read_advance(ringbuffer_t *rb, size_t cnt)
  *
  * @param rb a pointer to the ringbuffer structure.
  */
-__always_inline int ringbuffer_mlock(ringbuffer_t *rb)
+inline int ringbuffer_mlock(ringbuffer_t *rb)
 {
 #ifdef USE_MLOCK
     if (mlock (rb->buf, rb->size)) return -1;
@@ -398,7 +398,7 @@ __always_inline int ringbuffer_mlock(ringbuffer_t *rb)
  *
  * @param rb a pointer to the ringbuffer structure.
  */
-__always_inline void ringbuffer_reset(ringbuffer_t *rb)
+inline void ringbuffer_reset(ringbuffer_t *rb)
 {
     rb->read_ptr = 0;
     rb->write_ptr = 0;
@@ -414,7 +414,7 @@ __always_inline void ringbuffer_reset(ringbuffer_t *rb)
  *
  * @return the number of bytes write, which may range from 0 to cnt
  */
-__always_inline size_t ringbuffer_write(ringbuffer_t *rb, const char *src, size_t cnt)
+inline size_t ringbuffer_write(ringbuffer_t *rb, const char *src, size_t cnt)
 {
     size_t free_cnt;
     size_t cnt2;
@@ -462,7 +462,7 @@ __always_inline size_t ringbuffer_write(ringbuffer_t *rb, const char *src, size_
  * @param rb a pointer to the ringbuffer structure.
  * @param cnt the number of bytes written.
  */
-__always_inline void ringbuffer_write_advance(ringbuffer_t *rb, size_t cnt)
+inline void ringbuffer_write_advance(ringbuffer_t *rb, size_t cnt)
 {
     size_t tmp = (rb->write_ptr + cnt) % rb->size;
 
@@ -478,7 +478,7 @@ __always_inline void ringbuffer_write_advance(ringbuffer_t *rb, size_t cnt)
  * @param rb a pointer to the ringbuffer structure.
  * @param sz the new size, that must be less than allocated size.
  */
-__always_inline void ringbuffer_reset_size (ringbuffer_t * rb, size_t sz)
+inline void ringbuffer_reset_size (ringbuffer_t * rb, size_t sz)
 {
     rb->read_ptr = 0;
     rb->write_ptr = 0;
