@@ -175,10 +175,10 @@ typedef struct vban_stream_context_t {
 #include <linux/errqueue.h>
 #endif
 
-typedef struct vban_metadata{
-    uint32_t metaforc = 'ATEM';
-    scm_timestamping timestamps;
-} vban_metadata;
+// typedef struct vban_metadata{
+//     uint32_t metaforc = 'ATEM';
+//     scm_timestamping timestamps;
+// } vban_metadata;
 //FLAGS COMMON
 // flags defines
 #define RECEIVER        0x0001
@@ -713,7 +713,7 @@ inline int vban_send_txbuffer(vban_stream_context_t* context, in_addr_t txip = 0
             if (context->txport!= 0)
             {
                 udp_send(context->txsock, context->txport, (char*)&context->txpacket, VBAN_HEADER_SIZE+context->pacdatalen, txip);
-
+#ifdef __linux__
                 int icnt = 0;
                 usleep(10);
                 while((check_send_status(context->txsock->fd)==111)&&(icnt<2))
@@ -723,6 +723,7 @@ inline int vban_send_txbuffer(vban_stream_context_t* context, in_addr_t txip = 0
                     icnt++;
                 }
                 if (icnt==attempts) ret = 1; // ICMP PORT UNREACHABLE
+#endif
             }
             else write(context->pipedesc, (uint8_t*)&context->txpacket, VBAN_HEADER_SIZE+context->pacdatalen);
         context->txpacket.header.nuFrame++;
@@ -745,7 +746,7 @@ inline int vban_send_t32_fragment(vban_stream_context_t* context, in_addr_t txip
             if (context->txport!= 0)
             {
                 udp_send(context->txsock, context->txport, (char*)&context->txpacket, VBAN_HEADER_SIZE+context->pacdatalen, txip);
-
+#ifdef __linux__
                 int icnt = 0;
                 usleep(10);
                 while((check_send_status(context->txsock->fd)==111)&&(icnt<2))
@@ -755,6 +756,7 @@ inline int vban_send_t32_fragment(vban_stream_context_t* context, in_addr_t txip
                     icnt++;
                 }
                 if (icnt==attempts) ret = 1; // ICMP PORT UNREACHABLE
+#endif
             }
             else write(context->pipedesc, (uint8_t*)&context->txpacket, VBAN_HEADER_SIZE+context->pacdatalen);
         context->txpacket.header.nuFrame++;

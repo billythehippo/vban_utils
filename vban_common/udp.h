@@ -6,9 +6,6 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <ifaddrs.h>
-#include <linux/errqueue.h>
-#include <linux/icmp.h>
-#include <linux/net_tstamp.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -22,6 +19,12 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#ifdef __linux__
+#include <linux/errqueue.h>
+#include <linux/icmp.h>
+#include <linux/net_tstamp.h>
+#endif
+
 //#include "../vban_common/vban_functions.h"
 
 typedef struct
@@ -34,7 +37,9 @@ typedef struct
 int getipaddresses(uint32_t* ips, uint32_t* ipnum);
 in_addr get_ip_by_name(char* __restrict ifname);
 udpc_t* udp_init(uint16_t rx_port, uint16_t tx_port, char* __restrict rx_ip, char* __restrict tx_ip, suseconds_t t, uint8_t priority, int broadcast);
+#ifdef __linux__
 int set_recverr(int fd);
+#endif
 void udp_free(udpc_t* c);
 
 
@@ -59,6 +64,7 @@ inline int udp_recv(udpc_t* c, void* data, size_t n)
 }
 
 
+#ifdef __linux__
 inline int udp_recv_m(udpc_t* c, void* data, size_t n, struct timespec *timestamps = NULL)
 {
     struct msghdr msg;
@@ -100,9 +106,9 @@ inline int udp_recv_m(udpc_t* c, void* data, size_t n, struct timespec *timestam
             *timestamps = ((struct scm_timestamping*)CMSG_DATA(cmsg))->ts[0];
         }
     }
-
     return ret;
 }
+#endif
 
 
 inline uint32_t udp_get_sender_ip(udpc_t* c)
@@ -117,6 +123,7 @@ inline uint16_t udp_get_sender_port(udpc_t* c)
 }
 
 
+#ifdef __linux__
 inline int check_send_status(int sockfd, struct timespec *timestamps = NULL)
 {
     //struct scm_timestamping* ts;
@@ -164,6 +171,6 @@ inline int check_send_status(int sockfd, struct timespec *timestamps = NULL)
 
     return 0;
 }
-
+#endif
 
 #endif

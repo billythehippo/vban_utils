@@ -179,9 +179,7 @@ udpc_t* udp_init(uint16_t rx_port, uint16_t tx_port, char* __restrict rx_ip, cha
 }
 
 
-
-
-
+#ifdef __linux__
 int set_recverr(int fd)
 {
     int optval = 1;
@@ -192,6 +190,7 @@ int set_recverr(int fd)
     }
     return 0;
 }
+#endif
 
 
 void udp_free(udpc_t* c)
