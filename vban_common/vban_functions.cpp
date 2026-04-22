@@ -159,11 +159,8 @@ void* rxThread(void* arg)
             clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
             if (stream->rxport!=0) // UDP
             {
-#ifndef __linux__
-                packetlen = udp_recv(stream->rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE);
-#else
+                //packetlen = udp_recv(stream->rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE);
                 packetlen = udp_recv_m(stream->rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE, &stream->input_ts);
-#endif
                 ip_in = stream->rxsock->c_addr.sin_addr.s_addr;
                 stream->ansport = htons(stream->rxsock->c_addr.sin_port);
                 if (((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_AUDIO)||((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_SERIAL))

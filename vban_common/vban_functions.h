@@ -175,10 +175,10 @@ typedef struct vban_stream_context_t {
 #include <linux/errqueue.h>
 #endif
 
-// typedef struct vban_metadata{
-//     uint32_t metaforc = 'ATEM';
-//     scm_timestamping timestamps;
-// } vban_metadata;
+typedef struct vban_metadata{
+    uint32_t metaforc = 'ATEM';
+    scm_timestamping timestamps;
+} vban_metadata;
 //FLAGS COMMON
 // flags defines
 #define RECEIVER        0x0001
@@ -573,31 +573,34 @@ inline double calc_rbfill_pi(int rbfill_needed, int rbfill_real, double* rbf_int
 
 inline void calc_ratio_correction(vban_stream_context_t* context, timestamp_delta* callback_delta, int framesize, int rbfill_target)
 {
-    calc_delta_filtered(callback_delta, 3, 0.005);
-    if (callback_delta->deltatf[2]!= 0) context->fslo = (double)context->nframes*1e9/callback_delta->deltatf[2];
+//    calc_delta_filtered(callback_delta, 3, 0.005);
+//    if (callback_delta->deltatf[2]!= 0) context->fslo = (double)context->nframes*1e9/callback_delta->deltatf[2];
     //else fprintf(stderr, "Ёбань!\r\n");
-    if (context->fslo!= 0) context->rratio = context->fsin/context->fslo;
+//    if (context->fslo!= 0) context->rratio = context->fsin/context->fslo;
     //else fprintf(stderr, "Ёбань сраная!\r\n");
     // if (context->rratio > 1.002) context->rratio = 1.002;
     // else if (context->rratio < 0.998) context->rratio = 0.998;
-    context->rratiof = 0.99*context->rratiof + 0.01*context->rratio;
+//    context->rratiof = 0.99*context->rratiof + 0.01*context->rratio;
     if (abs(context->rratiof - 1) > 0.0025) context->rratiof = 1;
-    //int rbfill = ringbuffer_read_space(context->ringbuffer)/framesize;
+    float w = 0.01;
+    int thrsh = (context->nframes + context->cframes + context->lagrange_num) * 2;
+    if (context->rbfill - rbfill_target > thrsh) w = 0.1;
     double rbfill_pi = calc_rbfill_pi(rbfill_target, context->rbfill, &context->rbfill_integral, 0.0001, 5, 0.005);
     context->rratio = 0.99 * context->rratiof + 0.01 * rbfill_pi;
     if (context->rratio > 1.003) context->rratio = 1.003;
     else if (context->rratio < 0.998) context->rratio = 0.998;
-    fprintf(stderr, "fsin %f, fslocal %f, ratio %f fill %d\r", context->fsin, context->fslo, context->rratio, context->rbfill);
+    //fprintf(stderr, "fsin %f, fslocal %f, ratio %f fill %d\r", context->fsin, context->fslo, context->rratio, context->rbfill);
+    //fprintf(stderr, "fill %d\r", context->rbfill);
 }
 
 
 inline void correct_samplerate(vban_stream_context_t* context, int framesize, timestamp_delta* cbdelta)
 {
     int32_t ust;
-    //ust = context->cframes + context->nframes;
-    ust = (context->cframes > context->nframes ? context->cframes : context->nframes);
-    ust = ust + (ust>>1) + (ust>>2)*(context->redundancy) + 3;
-    fprintf(stderr, "ust %d %d ", ust, context->cframes);
+    ust = context->cframes + context->nframes + context->lagrange_num;
+    //ust = (context->cframes > context->nframes ? context->cframes : context->nframes);
+    //ust = ust + (ust>>1) + (ust>>2)*(context->redundancy) + 3;
+    //fprintf(stderr, "ust %d %d ", ust, context->cframes);
     if (context->cframes <= context->nframes)
         context->rbfill = ringbuffer_read_space(context->ringbuffer)/framesize;
     calc_ratio_correction(context, cbdelta, framesize, ust + context->add_delay_frames);
@@ -713,7 +716,7 @@ inline int vban_send_txbuffer(vban_stream_context_t* context, in_addr_t txip = 0
             if (context->txport!= 0)
             {
                 udp_send(context->txsock, context->txport, (char*)&context->txpacket, VBAN_HEADER_SIZE+context->pacdatalen, txip);
-#ifdef __linux__
+
                 int icnt = 0;
                 usleep(10);
                 while((check_send_status(context->txsock->fd)==111)&&(icnt<2))
@@ -723,7 +726,6 @@ inline int vban_send_txbuffer(vban_stream_context_t* context, in_addr_t txip = 0
                     icnt++;
                 }
                 if (icnt==attempts) ret = 1; // ICMP PORT UNREACHABLE
-#endif
             }
             else write(context->pipedesc, (uint8_t*)&context->txpacket, VBAN_HEADER_SIZE+context->pacdatalen);
         context->txpacket.header.nuFrame++;
@@ -746,7 +748,7 @@ inline int vban_send_t32_fragment(vban_stream_context_t* context, in_addr_t txip
             if (context->txport!= 0)
             {
                 udp_send(context->txsock, context->txport, (char*)&context->txpacket, VBAN_HEADER_SIZE+context->pacdatalen, txip);
-#ifdef __linux__
+
                 int icnt = 0;
                 usleep(10);
                 while((check_send_status(context->txsock->fd)==111)&&(icnt<2))
@@ -756,7 +758,6 @@ inline int vban_send_t32_fragment(vban_stream_context_t* context, in_addr_t txip
                     icnt++;
                 }
                 if (icnt==attempts) ret = 1; // ICMP PORT UNREACHABLE
-#endif
             }
             else write(context->pipedesc, (uint8_t*)&context->txpacket, VBAN_HEADER_SIZE+context->pacdatalen);
         context->txpacket.header.nuFrame++;
@@ -887,7 +888,7 @@ inline void read_from_ringbuffer_async_non_interleaved(vban_stream_context_t* co
         {
             pthread_mutex_lock(&context->rxmutex.threadlock);
             vban_read_frame_from_ringbuffer(context->rxbuf + rxbuf_pos, context->ringbuffer, context->nboutputs);
-            if (llost < 3)
+            if ((llost > 0)&&(llost < 3))
             {
                 for (int channel=0; channel<context->nboutputs; channel++)
                     ((float*)(context->rxbuf + rxbuf_pos))[channel] =   0.3 * ((float*)(context->rxbuf + rxbuf_pos))[channel] +
@@ -940,24 +941,24 @@ inline int calc_input_samplerate(vban_stream_context_t* context, VBanPacket* vba
     {
         if (context->time_cycle_start.tv_sec != 0)
         {
-            context->deltaT[0] = (timetmp.tv_sec - context->time_cycle_start.tv_sec) * 1000000000 + timetmp.tv_nsec - context->time_cycle_start.tv_nsec;
-            if (context->deltaT[3] == 0) for (int f = 1; f < 4; f++) context->deltaT[f] = context->deltaT[f - 1]<<3;
-            context->deltaT[1] = context->deltaT[1] - (context->deltaT[1]>>3) + context->deltaT[0];
-            context->deltaT[2] = context->deltaT[2] - (context->deltaT[2]>>3) + context->deltaT[1];
-            context->deltaT[3] = context->deltaT[3] - (context->deltaT[3]>>3) + context->deltaT[2];
+            // context->deltaT[0] = (timetmp.tv_sec - context->time_cycle_start.tv_sec) * 1000000000 + timetmp.tv_nsec - context->time_cycle_start.tv_nsec;
+            // if (context->deltaT[3] == 0) for (int f = 1; f < 4; f++) context->deltaT[f] = context->deltaT[f - 1]<<3;
+            // context->deltaT[1] = context->deltaT[1] - (context->deltaT[1]>>3) + context->deltaT[0];
+            // context->deltaT[2] = context->deltaT[2] - (context->deltaT[2]>>3) + context->deltaT[1];
+            // context->deltaT[3] = context->deltaT[3] - (context->deltaT[3]>>3) + context->deltaT[2];
 
             context->rx_cycle_delta.ts_new = timetmp;
             calc_delta_filtered(&context->rx_cycle_delta, 3, 0.005);
-            if (((context->flags&NET_XRUN)==0)&&(context->cframes!= 0)&&(vban_packet->header.nuFrame == context->nu_frame + 1))
-            {
-                if (context->fsin==0) context->fsin = context->samplerate;
-                context->fsin = (double)context->cframes*1e9/(double)context->rx_cycle_delta.deltatf[2];
-            }
-            else
-            {
-                fprintf(stderr, "\r\nXRUN! pacs %d\r\n", context->cycle_pac_cnt);
-                ret = 2;
-            }
+            // if (((context->flags&NET_XRUN)==0)&&(context->cframes!= 0)&&(vban_packet->header.nuFrame == context->nu_frame + 1))
+            // {
+            //     if (context->fsin==0) context->fsin = context->samplerate;
+            //     context->fsin = (double)context->cframes*1e9/(double)context->rx_cycle_delta.deltatf[2];
+            // }
+            // else
+            // {
+            //     fprintf(stderr, "\r\nXRUN! pacs %d\r\n", context->cycle_pac_cnt);
+            //     ret = 2;
+            // }
 
             context->cframes_marr[context->cfind] = context->cycle_frames;
             if (context->cfind == CFMSIZE - 1) context->cfind = 0;
