@@ -3,6 +3,10 @@
 #ifdef __linux
 #include <sys/timerfd.h>
 #endif
+#ifdef __APPLE__
+#include <signal.h>
+#include <stdio.h>
+#endif
 
 #include "../vban_common/jack_backend.h"
 #include "../vban_common/udp.h"
