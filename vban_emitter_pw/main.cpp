@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
 
     pw_stop_stream(&data, &runmutex);
 
-    if (stream.txsock.socket!=0) udp_free(stream.txsock);
+    if (stream.txsock!=0) udp_free(stream.txsock);
     if (stream.txbuf!= nullptr) free(stream.txbuf);
 
     return 0;
