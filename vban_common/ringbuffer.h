@@ -108,7 +108,7 @@ inline ringbuffer_t *ringbuffer_create(size_t sz)
  *
  * @param rb a pointer to the ringbuffer structure.
  */
-__always_inline void ringbuffer_free(ringbuffer_t *rb)
+inline void ringbuffer_free(ringbuffer_t *rb)
 {
 #ifdef USE_MLOCK
     if (rb->mlocked) munlock(rb->buf, rb->size);
