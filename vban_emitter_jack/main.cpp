@@ -96,7 +96,9 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Cannot init UDP socket!\r\n");
             return 1;
         }
+#ifdef __linux__
         set_recverr(stream.txsock->fd);
+#endif
         stream.pd[0].fd = stream.txsock->fd;
     }
     else // PIPE tx mode
