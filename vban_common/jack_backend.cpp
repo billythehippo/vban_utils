@@ -20,6 +20,7 @@ void help_emitter(void)
     fprintf(stderr, "-d - device mode for jack ports\r\n");
     fprintf(stderr, "-f - format: 16, 24, 32f\r\n");
     fprintf(stderr, "-e - enable 32 frames slicing\r\n");
+    fprintf(stderr, "-a - enable autoconnect\r\n");
     fprintf(stderr, "-h - show this help\r\n");
     exit(0);
 }
@@ -39,6 +40,7 @@ void help_receptor(void)
     fprintf(stderr, "-d - device mode for jack ports\r\n");
     //fprintf(stderr, "-f - format: 16, 24, 32f\r\n");
     fprintf(stderr, "-e - enable resampler-corrector\r\n");
+    fprintf(stderr, "-a - enable autoconnect\r\n");
     fprintf(stderr, "-h - show this help\r\n");
     exit(0);
 }
@@ -166,6 +168,7 @@ int get_receptor_options(vban_stream_context_t* stream, int argc, char *argv[])
             {"nbchannels",  required_argument,  0, 'c'},
             {"redundancy",  required_argument,  0, 'n'},
             {"device",      required_argument,  0, 'd'},
+            {"autoconnect", required_argument,  0, 'a'},
             //{"format",      required_argument,  0, 'f'},
             {"correction",  required_argument,  0, 'e'},
             {"jackservname",required_argument,  0, 'j'},
@@ -173,7 +176,7 @@ int get_receptor_options(vban_stream_context_t* stream, int argc, char *argv[])
             {0,             0,                  0,  0 }
         };
 
-    c = getopt_long(argc, argv, "m:i:p:s:r:q:c:n:d:f:e:j:h", options, &index);
+    c = getopt_long(argc, argv, "m:i:p:s:r:q:c:n:d:a:f:e:j:h", options, &index);
     if (c==-1) c = 'h';
 
     while(c!=-1)
@@ -221,9 +224,16 @@ int get_receptor_options(vban_stream_context_t* stream, int argc, char *argv[])
             stream->redundancy = atoi(optarg);
             break;
         case 'd': // Device mode in graph
-            if ((optarg[0]!='0')&&(optarg[0]!='n')&&(optarg[0]!='N')) stream->flags|= DEVICE_MODE;
+            if ((optarg[0]!='0')&&(optarg[0]!='n')&&(optarg[0]!='N'))
+            {
+                stream->flags&=~AUTOCONNECT;
+                stream->flags|= DEVICE_MODE;
+            }
             else stream->flags&=~DEVICE_MODE;
             break;
+        case 'a':
+            if (((stream->flags&DEVICE_MODE)!= DEVICE_MODE)&&(optarg[0]=='y'))
+                stream->flags|= AUTOCONNECT;
         case 'f':
             break;
         case 'e':
@@ -241,7 +251,7 @@ int get_receptor_options(vban_stream_context_t* stream, int argc, char *argv[])
             fprintf(stderr, "Unrecognized parameter -%c", c);
             break;
         }
-        c = getopt_long(argc, argv, "m:i:p:s:r:q:c:n:d:f:e:j:h", options, &index);
+        c = getopt_long(argc, argv, "m:i:p:s:r:q:c:n:d:a:f:e:j:h", options, &index);
     }
     return 0;
 }
