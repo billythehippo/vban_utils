@@ -84,6 +84,8 @@ int main(int argc, char *argv[])
         uint16_t cmdlen = strlen(argv[0]);
         memcpy(cmd, argv[0], cmdlen);
         sprintf(cmd+strlen(cmd), " -p0 -istdin -q%d -n%d", stream.nframes, stream.redundancy);
+        if ((stream.flags&DEVICE_MODE)!= 0) strcat(cmd, " -dy");
+        if ((stream.flags&AUTOCONNECT)!= 0) strcat(cmd, " -ay");
 
         memset(&packet, 0, VBAN_PROTOCOL_MAX_SIZE);
 
@@ -237,25 +239,6 @@ int main(int argc, char *argv[])
         jack_init_rx_stream(&jack_stream);
 
         if ((stream.iptx!=0)&&(stream.rxport!=0)) fprintf(stderr, "Getting incoming stream from %d.%d.%d.%d:%d\r\n", ((uint8_t*)&stream.iptx)[0], ((uint8_t*)&stream.iptx)[1], ((uint8_t*)&stream.iptx)[2], ((uint8_t*)&stream.iptx)[3], stream.rxport);
-        // stream.rxbuflen = stream.nframes*stream.nboutputs;
-        // stream.rxbuf = (float*)malloc(stream.rxbuflen*sizeof(float));
-        // if (stream.samplerate_resampler!= stream.samplerate)
-        // {
-        //     if (stream.resampler_inbuf!=nullptr) free(stream.resampler_inbuf);
-        //     if (stream.resampler_outbuf!=nullptr) free(stream.resampler_outbuf);
-
-        //     stream.resampler = new VResampler();
-        //     if (stream.resampler->setup((double)stream.samplerate/(double)stream.samplerate_resampler, stream.nboutputs, 64))
-        //     {
-        //         fprintf (stderr, "Resampler can't handle the ratio\r\n");
-        //         exit(1);
-        //     }
-        //     stream.resampler->inp_count = stream.resampler->inpsize() - 1;
-        //     stream.resampler->inp_data = 0;
-        //     stream.resampler->out_count = 999999;
-        //     stream.resampler->out_data = 0;
-        //     stream.resampler->process();
-        // }
 
         if (stream.resampler_inbuf!=nullptr) free(stream.resampler_inbuf);
         if (stream.resampler_outbuf!=nullptr) free(stream.resampler_outbuf);
