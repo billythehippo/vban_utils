@@ -28,6 +28,8 @@
 
 int main(int argc, char *argv[])
 {
+    pid_t txpid = 0;
+    
     vban_stream_context_t stream;
     vban_multistream_context_t mscontext;
 
@@ -43,7 +45,16 @@ int main(int argc, char *argv[])
 
     if (get_receptor_options(&stream, argc, argv)) return 1;
     vban_fill_receptor_info(&stream);
+    
+    if ((stream.flags&MULTISTREAM) == MULTISTREAM)
+    {
+        mscontext.vban_clients_max = stream.nboutputs;
+        stream.nboutputs = 0;
+    }
+    else mscontext.vban_clients_max = 1;
 
+    fprintf(stderr, "Max clients %d\r\n", mscontext.vban_clients_max);
+    
     if (stream.rxport!=0) // UDP rx mode
     {
         stream.rxsock = udp_init(stream.rxport, 0, "0.0.0.0", NULL, 0, 6, 1);
@@ -53,8 +64,10 @@ int main(int argc, char *argv[])
             return 1;
         }
         stream.pd[0].fd = stream.rxsock->fd;
+#ifdef __linux__
         int socketflags = SOF_TIMESTAMPING_SOFTWARE | SOF_TIMESTAMPING_TX_HARDWARE | SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_RAW_HARDWARE | SOF_TIMESTAMPING_OPT_ID;
         setsockopt(stream.rxsock->fd, SOL_SOCKET, SO_TIMESTAMPING, &socketflags, sizeof(socketflags));
+#endif
     }
     else // PIPE rx mode
     {
@@ -69,8 +82,8 @@ int main(int argc, char *argv[])
 
     stream.pd[0].events = POLLIN;
     pthread_attr_init(&stream.rxmutex.attr);
-    stream.rxmutex.threadlock = PTHREAD_MUTEX_INITIALIZER;
-    stream.rxmutex.dataready  = PTHREAD_COND_INITIALIZER;
+    pthread_mutex_init(&stream.rxmutex.threadlock, NULL);
+    pthread_cond_init(&stream.rxmutex.dataready, NULL);
     stream.flags|= RECEIVING;
 
     if (stream.flags&MULTISTREAM)
@@ -78,48 +91,69 @@ int main(int argc, char *argv[])
         VBanPacket packet;
         int packetlen = 0;
         int datalen = 0;
+        int rightlen;
         union
         {
             uint32_t ip_in;
             uint8_t ip_in_bytes[4];
         };
+        uint16_t port_in;
         char cmd[CMDLEN_MAX];
         memset(cmd, 0, CMDLEN_MAX);
         uint16_t cmdlen = strlen(argv[0]);
         memcpy(cmd, argv[0], cmdlen);
-        sprintf(cmd+strlen(cmd), " -p0 -istdin -q%d -n%d", stream.nframes, stream.redundancy);
-        if ((stream.flags&DEVICE_MODE)!= 0) strcat(cmd, " -dy");
-        if ((stream.flags&AUTOCONNECT)!= 0) strcat(cmd, " -ay");
+        sprintf(cmd+strlen(cmd), " -m0 -p0 -istdin -q%d -n%d", stream.nframes, stream.redundancy);
+        if ((stream.flags&DEVICE_MODE) == DEVICE_MODE) strcat(cmd, " -dy");
+        if ((stream.flags&AUTOCONNECT) == AUTOCONNECT) strcat(cmd, " -ay");
+        if ((stream.flags&CORRECTION_ON) == CORRECTION_ON) strcat(cmd, " -ey");
 
         memset(&packet, 0, VBAN_PROTOCOL_MAX_SIZE);
 
         pthread_attr_init(&mscontext.offtimer.timmutex.attr);
         pthread_create(&mscontext.offtimer.timmutex.tid, &mscontext.offtimer.timmutex.attr, timerThread, (void*)&mscontext);
-
-
+        
+        fprintf(stderr, "Starting multistream...\r\n");
         while(1)
         {
-            //        sleep(1);
-            while(poll(stream.pd, 1, 500))
+            if (poll(stream.pd, 1, 100))
             {
                 if (stream.rxport!=0) // UDP
                 {
                     packetlen = udp_recv(stream.rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE);
                     ip_in = stream.rxsock->c_addr.sin_addr.s_addr;
-                    //stream.txport = htons(stream.rxsock->c_addr.sin_port);
+                    port_in = htons(stream.rxsock->c_addr.sin_port);
+                    rightlen = VBAN_HEADER_SIZE + VBanBitResolutionSize[packet.header.format_bit&VBAN_BIT_RESOLUTION_MASK]*(packet.header.format_nbc+1)*(packet.header.format_nbs+1);
                 }
                 else
                 {
                     packetlen = 0;
                     packetlen = read(stream.pd[0].fd, &packet, VBAN_HEADER_SIZE);
-                    if (((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_AUDIO)||((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_TXT))
+                    if (((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_AUDIO)||
+                        ((packet.header.format_SR&VBAN_PROTOCOL_MASK)==VBAN_PROTOCOL_TXT))
                     {
-                        datalen = VBanBitResolutionSize[packet.header.format_bit&VBAN_BIT_RESOLUTION_MASK]*(packet.header.format_nbc+1)*(packet.header.format_nbs+1);
-                        if (datalen==read(stream.pd[0].fd, packet.data, datalen)) packetlen+= datalen;
+                        rightlen = VBanBitResolutionSize[packet.header.format_bit&VBAN_BIT_RESOLUTION_MASK]*(packet.header.format_nbc+1)*(packet.header.format_nbs+1);
+                        datalen = read(stream.pd[0].fd, packet.data, VBAN_DATA_MAX_SIZE);
+                        if (datalen >= rightlen)
+                        {
+                            packetlen+= datalen;
+                            rightlen+= VBAN_HEADER_SIZE;
+                        }
+                        else
+                        {
+                            packetlen = 0;
+                            datalen = 0;
+                            rightlen = 0;
+                        }
+                    }
+                    else
+                    {
+                        packetlen = 0;
+                        datalen = 0;
+                        rightlen = 0;
                     }
                 }
 
-                if (packetlen)
+                if (packetlen == rightlen)
                 {
                     if (packet.header.vban==VBAN_HEADER_FOURC) // VBAN packet
                     {
@@ -128,14 +162,13 @@ int main(int argc, char *argv[])
                         case VBAN_PROTOCOL_AUDIO:
                         case VBAN_PROTOCOL_SERIAL:
                             mscontext.client = mscontext.clients;
-                            for (mscontext.active_clients_ind=0; mscontext.active_clients_ind<mscontext.active_clients_num; mscontext.active_clients_ind++)
+                            for (mscontext.active_clients_ind = 0; mscontext.active_clients_ind < mscontext.active_clients_num; mscontext.active_clients_ind++)
                             {
                                 if  ((ip_in==mscontext.client->ip)&&
                                     (((((uint32_t*)packet.header.streamname)[0]==((uint32_t*)mscontext.client->header.streamname)[0])&&
                                       (((uint32_t*)packet.header.streamname)[1]==((uint32_t*)mscontext.client->header.streamname)[1])&&
                                       (((uint32_t*)packet.header.streamname)[2]==((uint32_t*)mscontext.client->header.streamname)[2])&&
-                                      (((uint32_t*)packet.header.streamname)[3]==((uint32_t*)mscontext.client->header.streamname)[3]))||
-                                        (strncmp(packet.header.streamname, "MIDI1", 5)==0)))
+                                      (((uint32_t*)packet.header.streamname)[3]==((uint32_t*)mscontext.client->header.streamname)[3]))))
                                 {
                                     mscontext.client->timer = 0;
                                     write(mscontext.client->pipedesc, &packet, packetlen);
@@ -147,7 +180,7 @@ int main(int argc, char *argv[])
                                 else mscontext.client = mscontext.client->next;
                                 //if (client==NULL) break;
                             }
-                            if (mscontext.active_clients_ind==mscontext.active_clients_num) // create new client (append)
+                            if (mscontext.active_clients_ind == mscontext.active_clients_num) // create new client (append)
                             {
                                 if (mscontext.clients==NULL) // first one
                                 {
@@ -155,27 +188,74 @@ int main(int argc, char *argv[])
                                     memset(mscontext.clients, 0, sizeof(client_id_t));
 
                                     mscontext.clients->ip = ip_in;
+                                    mscontext.clients->port = port_in;
                                     mscontext.clients->header = packet.header;
                                     mscontext.clients->header.nuFrame = 0;
                                     //memset(&cmd[cmdlen], 0, CMDLEN_MAX-cmdlen);
                                     mscontext.clients->pid = popen2(cmd, &mscontext.clients->pipedesc, NULL);
-                                    if (mscontext.clients->pid==NULL) fprintf(stderr, "pizdetz!\n");
-                                    else fprintf(stderr, "client created!\n");
+                                    if (mscontext.clients->pid == NULL) fprintf(stderr, "pizdetz!\n");
+                                    fprintf(stderr, "Receiving from %d.%d.%d.%d:%d\r\n", mscontext.clients->ip_bytes[0], mscontext.clients->ip_bytes[1], mscontext.clients->ip_bytes[2], mscontext.clients->ip_bytes[3], mscontext.clients->port);
+                                    fprintf(stderr, "RX Stream %s, %d channels\r\n", mscontext.clients->header.streamname, mscontext.clients->header.format_nbc + 1);
+                                    if ((stream.rxport!= 0)&&((stream.flags&DUPLEX)!= 0))
+                                    {
+                                        fprintf(stderr, "Bidirectional mode ON\r\n");
+                                        char txcmd[256];
+                                        memset(txcmd, 0, 256);
+                                        //sprintf(txcmd, "vban_emitter_jack -i%d.%d.%d.%d -p%d -s'%s' -c%d", mscontext.clients->ip_bytes[0], mscontext.clients->ip_bytes[1], mscontext.clients->ip_bytes[2], mscontext.clients->ip_bytes[3], mscontext.clients->port, mscontext.clients->header.streamname, mscontext.clients->header.format_nbc + 1);
+                                        sprintf(txcmd, "vban_emitter_jack -i127.0.0.1 -p%d -s'%s' -c%d",
+                                                        stream.rxport,
+                                                        mscontext.clients->header.streamname,
+                                                        mscontext.clients->header.format_nbc + 1);
+                                        if ((stream.flags&AUTOCONNECT) == AUTOCONNECT) strcat(txcmd, " -ay");
+                                        else if ((stream.flags&DEVICE_MODE) == DEVICE_MODE) strcat(txcmd, "-dy");
+                                        sprintf(txcmd + strlen(txcmd), " -x%d.%d.%d.%d:%d",
+                                                        mscontext.clients->ip_bytes[0],
+                                                        mscontext.clients->ip_bytes[1],
+                                                        mscontext.clients->ip_bytes[2],
+                                                        mscontext.clients->ip_bytes[3],
+                                                        mscontext.clients->port);
+                                        mscontext.clients->txpid = popen2(txcmd, NULL, &mscontext.clients->txpipedesc);
+                                    }
                                     //fprintf(stderr, "Getting incoming stream from %d.%d.%d.%d:%d\r\n", ((uint8_t*)&ip_in)[0], ((uint8_t*)&ip_in)[1], ((uint8_t*)&ip_in)[2], ((uint8_t*)&ip_in)[3], htons(stream.rxsock->c_addr.sin_port));
                                     mscontext.active_clients_num++;
                                 }
-                                else if (mscontext.active_clients_num<stream.nboutputs)
+                                else if (mscontext.active_clients_num < mscontext.vban_clients_max)
                                 {
+                                    fprintf(stderr, "MAX CLIENTS %d ACTIVE %d\r\n", mscontext.vban_clients_max, mscontext.active_clients_num);
                                     mscontext.client = mscontext.clients;
-                                    while(mscontext.client->next!=NULL) mscontext.client = mscontext.client->next;
+                                    int k = 0;
+                                    while(mscontext.client->next!= NULL) mscontext.client = mscontext.client->next;
                                     mscontext.client->next = (client_id_t*)malloc(sizeof(client_id_t));
                                     memset(mscontext.client->next, 0, sizeof(client_id_t));
 
                                     mscontext.client->next->ip = ip_in;
+                                    mscontext.client->next->port = port_in;
                                     mscontext.client->next->header = packet.header;
                                     mscontext.client->next->header.nuFrame = 0;
                                     //memset(&cmd[cmdlen], 0, CMDLEN_MAX-cmdlen);
                                     mscontext.client->next->pid = popen2(cmd, &mscontext.client->next->pipedesc, NULL);
+                                    fprintf(stderr, "Receiving from %d.%d.%d.%d:%d\r\n", mscontext.client->next->ip_bytes[0], mscontext.client->next->ip_bytes[1], mscontext.client->next->ip_bytes[2], mscontext.client->next->ip_bytes[3], mscontext.client->next->port);
+                                    fprintf(stderr, "RX Stream %s, %d channels\r\n", mscontext.client->next->header.streamname, mscontext.client->next->header.format_nbc + 1);
+                                    if ((stream.rxport!= 0)&&((stream.flags&DUPLEX)!= 0))
+                                    {
+                                        fprintf(stderr, "Bidirectional mode ON\r\n");
+                                        char txcmd[256];
+                                        memset(txcmd, 0, 256);
+                                        //sprintf(txcmd, "vban_emitter_jack -i%d.%d.%d.%d -p%d -s'%s' -c%d", mscontext.client->next->ip_bytes[0], mscontext.client->next->ip_bytes[1], mscontext.client->next->ip_bytes[2], mscontext.client->next->ip_bytes[3], mscontext.client->next->port, mscontext.client->next->header.streamname, mscontext.client->next->header.format_nbc + 1);
+                                        sprintf(txcmd, "vban_emitter_jack -i127.0.0.1 -p%d -s'%s' -c%d",
+                                                        stream.rxport,
+                                                        mscontext.client->next->header.streamname,
+                                                        mscontext.client->next->header.format_nbc + 1);
+                                        if ((stream.flags&AUTOCONNECT)!= 0) strcat(txcmd, " -ay");
+                                        else if ((stream.flags&DEVICE_MODE)!= 0) strcat(txcmd, "-dy");
+                                        sprintf(txcmd + strlen(txcmd), " -x%d.%d.%d.%d:%d",
+                                                        mscontext.client->next->ip_bytes[0],
+                                                        mscontext.client->next->ip_bytes[1],
+                                                        mscontext.client->next->ip_bytes[2],
+                                                        mscontext.client->next->ip_bytes[3],
+                                                        mscontext.client->next->port);
+                                        mscontext.client->next->txpid = popen2(txcmd, NULL, &mscontext.client->next->txpipedesc);
+                                    }
                                     // if (client->next->pid==nullptr) fprintf(stderr, "pizdetz!\n");
                                     // else fprintf(stderr, "client created!\n");
                                     //fprintf(stderr, "Getting incoming stream from %d.%d.%d.%d:%d\r\n", ((uint8_t*)&ip_in)[0], ((uint8_t*)&ip_in)[1], ((uint8_t*)&ip_in)[2], ((uint8_t*)&ip_in)[3], htons(stream.rxsock->c_addr.sin_port));
@@ -194,7 +274,7 @@ int main(int argc, char *argv[])
                                 vban_fill_receptor_info(&stream);
                                 sprintf(stream.info.data+strlen(stream.info.data), " max_clients=%d free_clients=%d", stream.nboutputs, stream.nboutputs-mscontext.active_clients_num);
                                 fprintf(stderr, "Info request from %d.%d.%d.%d:%d\n", ip_in_bytes[0], ip_in_bytes[1], ip_in_bytes[2], ip_in_bytes[3], htons(stream.rxsock->c_addr.sin_port));
-                                udp_send(stream.rxsock, stream.ansport, (char*)&stream.info, VBAN_HEADER_SIZE+strlen(stream.info.data));
+                                if (stream.rxport) udp_send(stream.rxsock, stream.ansport, (char*)&stream.info, VBAN_HEADER_SIZE+strlen(stream.info.data));
                             }
                             //else if ((strncmp(packet.header.streamname, "message", 4)==0)||(strncmp(packet.header.streamname, "MESSAGE", 4)==0)) fprintf(stderr, "%s", packet.data);
                             break;
@@ -203,14 +283,21 @@ int main(int argc, char *argv[])
                         }
                     }
                 }
+                else if (((stream.flags&DUPLEX)!= 0)&&(packetlen == rightlen + 6))
+                {
+                    uint32_t dstip = ((uint32_t*)((char*)&packet + rightlen))[0];
+                    uint16_t dstport = htons(((uint16_t*)((char*)&packet + rightlen + sizeof(uint32_t)))[0]);
+                    if (stream.rxport) udp_send(stream.rxsock, dstport, (char*)&packet, rightlen, dstip);
+                }
             }
         }
-
+        
         mscontext.client = mscontext.clients;
-        for (uint8_t c=0; c<stream.nboutputs; c++)
+        for (uint8_t c=0; c<mscontext.vban_clients_max; c++)
             if (mscontext.client->process!=NULL)
             {
                 kill(mscontext.client->pid, SIGINT);
+                if ((stream.flags&DUPLEX)!= 0) kill(mscontext.client->txpid, SIGINT);
                 mscontext.client = mscontext.client->next;
             }
 
@@ -219,6 +306,20 @@ int main(int argc, char *argv[])
     }
     else // SINGLE STREAM
     {
+        // 1. Инициализируем мьютекс (потоковый замок)
+        if (pthread_mutex_init(&stream.cmdmutex.threadlock, NULL) != 0)
+        {
+            fprintf(stderr, "Ошибка: не удалось инициализировать мьютекс!\n");
+            exit(1);
+        }
+        // 2. Инициализируем условную переменную (сигнал готовности данных)
+        if (pthread_cond_init(&stream.cmdmutex.dataready, NULL) != 0)
+        {
+            fprintf(stderr, "Ошибка: не удалось инициализировать условную переменную!\n");
+            pthread_mutex_destroy(&stream.cmdmutex.threadlock);
+            exit(1);
+        }
+        
         pthread_create(&stream.rxmutex.tid, &stream.rxmutex.attr, rxThread, (void*)&stream);
         pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
         pthread_mutex_lock(&stream.cmdmutex.threadlock);
@@ -231,9 +332,9 @@ int main(int argc, char *argv[])
                 if (stream.rxport!=0)
                     udp_send(stream.rxsock, stream.txport, (char*)&stream.info, VBAN_HEADER_SIZE+strlen(stream.info.data));
             }
+            usleep(100000);
         }
         pthread_mutex_unlock(&stream.cmdmutex.threadlock);
-
 
         //Create stream
         stream.flags|=RECEIVER;
@@ -263,6 +364,23 @@ int main(int argc, char *argv[])
         vban_compute_rx_ringbuffer(stream.nframes, 0, stream.nboutputs, stream.redundancy, &stream.ringbuffer);
         stream.ringbuffer_midi = ringbuffer_create(300); // El Magico!
 
+        if (stream.rxport!= 0)
+        {
+            stream.txport = htons(stream.rxsock->c_addr.sin_port);
+            fprintf(stderr, "Receiving from %d.%d.%d.%d:%d\r\n", stream.iprx_bytes[0], stream.iprx_bytes[1], stream.iprx_bytes[2], stream.iprx_bytes[3], stream.txport);
+            /*if ((stream.flags&DUPLEX) == DUPLEX)
+            {
+                if (stream.nbinputs == 0) stream.nbinputs = stream.nboutputs;
+                fprintf(stderr, "Bidirectional mode ON\r\nRX Stream %s, %d channels\r\n", stream.rx_streamname, stream.nbinputs);
+                char txcmd[256];
+                memset(txcmd, 0, 256);
+                sprintf(txcmd, "vban_emitter_jack -i%d.%d.%d.%d -p%d -s'%s' -c%d", stream.iprx_bytes[0], stream.iprx_bytes[1], stream.iprx_bytes[2], stream.iprx_bytes[3], stream.txport, stream.rx_streamname, stream.nbinputs);
+                if ((stream.flags&AUTOCONNECT)!= 0) strcat(txcmd, " -ay");
+                else if ((stream.flags&DEVICE_MODE)!= 0) strcat(txcmd, "-dy");
+                txpid = popen2(txcmd, NULL, NULL);
+            }*/
+        }
+        
         //Run stream
         jack_run_rx_stream(&jack_stream);
 
@@ -276,10 +394,17 @@ int main(int argc, char *argv[])
             if (stream.rxport!=0)
                 udp_send(stream.rxsock, stream.ansport, (char*)&stream.info, VBAN_HEADER_SIZE+strlen(stream.info.data));
             pthread_mutex_unlock(&stream.cmdmutex.threadlock);
+            usleep(100000);
         }
 
         //Stop stream
         jack_stop_rx_stream(&jack_stream);
+        
+        if ((stream.flags&DUPLEX) == DUPLEX)
+        {
+            kill(txpid, SIGINT);
+            pclose2(txpid);
+        }
 
         //Cleanup
         CLEANUP();
