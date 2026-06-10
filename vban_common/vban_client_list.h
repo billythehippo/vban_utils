@@ -15,12 +15,15 @@ typedef struct client_id_t
         uint32_t ip;
         uint8_t ip_bytes[4];
     };
+    uint16_t port;
     VBanHeader header;
     char pipename[36];
     int pipedesc;
+    int txpipedesc;
     FILE* process;
     FILE* pipe;
     pid_t pid;
+    pid_t txpid;
     uint8_t timer;
     client_id_t* next = NULL;
 } __attribute__((packed)) client_id_t;
