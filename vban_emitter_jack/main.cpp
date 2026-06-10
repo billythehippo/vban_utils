@@ -99,17 +99,20 @@ int main(int argc, char *argv[])
 #ifdef __linux__
         set_recverr(stream.txsock->fd);
 #endif
-        stream.pd[0].fd = stream.txsock->fd;
+        //stream.pd[0].fd = stream.txsock->fd;
     }
     else // PIPE tx mode
     {
-        if (strncmp(stream.pipename, "stdin", 6)) // named pipe
+		if (strlen(stream.pipename) == 0) stream.pipedesc = 1; // stdout
+        else if (strncmp(stream.pipename, "stdout", 6)!= 0) // named pipe
         {
             stream.pipedesc = open(stream.pipename, O_WRONLY);
             mkfifo(stream.pipename, 0666);
         }
-        else stream.pipedesc = 0; // stdin
-        stream.pd[0].fd = stream.pipedesc;
+        else stream.pipedesc = 1; // stdout
+		//if (stream.pipedesc == 1) setvbuf(stdout, NULL, _IONBF, 0);
+        //stream.pd[0].fd = stream.pipedesc;
+		fprintf(stderr, "write socket descriptor %d for %s\r\n", stream.pipedesc, stream.pipename);
     }
 
     //Create stream
@@ -160,6 +163,7 @@ int main(int argc, char *argv[])
     }
 
     jack_run_tx_stream(&jack_stream);
+	fprintf(stderr, "Started\r\n");
 
     while(1) sleep(1);
 
