@@ -67,15 +67,16 @@ inline int udp_recv(udpc_t* c, void* data, size_t n)
 #ifdef __linux__
 inline int udp_recv_m(udpc_t* c, void* data, size_t n, struct timespec *timestamps = NULL)
 {
+	struct sockaddr_storage src_addr;
     struct msghdr msg;
-    char control_buf[CMSG_SPACE(sizeof(struct sock_extended_err))];
+    char control_buf[CMSG_SPACE(sizeof(struct sock_extended_err)) + CMSG_SPACE(sizeof(struct scm_timestamping))];
     struct iovec iov;
     iov.iov_base = (char*)data;
     iov.iov_len = n;
 
     memset(&msg, 0, sizeof(msg));
-    msg.msg_name = NULL;
-    msg.msg_namelen = 0;
+    msg.msg_name = &src_addr;
+    msg.msg_namelen = sizeof(src_addr);
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
     msg.msg_control = control_buf;
@@ -84,6 +85,7 @@ inline int udp_recv_m(udpc_t* c, void* data, size_t n, struct timespec *timestam
 
     ssize_t ret = recvmsg(c->fd, &msg, 0); //MSG_ERRQUEUE | MSG_PEEK
     if (ret < 0) return -1;
+	if (!(msg.msg_flags & MSG_CTRUNC) && src_addr.ss_family == AF_INET) c->c_addr = *(struct sockaddr_in*)&src_addr;
 
     for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg))
     {
@@ -101,9 +103,10 @@ inline int udp_recv_m(udpc_t* c, void* data, size_t n, struct timespec *timestam
         // }
 
         // Get timestamps - 0 software, 2 hardware
-        if (timestamps!= NULL && cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMPING)
+        if (timestamps != NULL && cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMPING)
         {
-            *timestamps = ((struct scm_timestamping*)CMSG_DATA(cmsg))->ts[0];
+            struct scm_timestamping *ts = (struct scm_timestamping*)CMSG_DATA(cmsg);
+            *timestamps = ts->ts[0]; // 0 - software
         }
     }
     return ret;
