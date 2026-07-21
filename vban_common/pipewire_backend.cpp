@@ -27,10 +27,10 @@ enum spa_audio_format format_vban_to_spa(enum VBanBitResolution format_vban)
 void help_emitter(void)
 {
     fprintf(stderr, "VBAN Pipewire emitter for network and pipes/fifos\n\nBy Billy the Hippo\n\nusage: vban_emitter_pw <args>\r\n\n");
-    // fprintf(stderr, "-m - multistream mode on\r\n");
     fprintf(stderr, "-i - ip address or pipe name (default ip=0, default pipename - stdin\r\n");
     fprintf(stderr, "-p - ip port (if 0 - pipe mode)\r\n");
     fprintf(stderr, "-s - Stream/Emitter name, up to 16 symbols\r\n");
+    fprintf(stderr, "-m - multistream receptor server name on\r\n");
     fprintf(stderr, "-r - samplerate (default 48000)\r\n");
     fprintf(stderr, "-q - quantum, buffer size (Attention!!! Default is 128!!! Made for musicians.)\r\n");
     fprintf(stderr, "-c - number of channels/clients\r\n");
@@ -68,10 +68,10 @@ int get_emitter_options(vban_stream_context_t* stream, int argc, char* argv[])
     uint16_t nbcd = 0;
     char c;
     static const struct option options[] = {
-        //{"multistream", required_argument,  0, 'm'},
         { "ipaddr", required_argument, 0, 'i' },
         { "port", required_argument, 0, 'p' },
         { "streamname", required_argument, 0, 's' },
+        { "servername", required_argument,  0, 'm'},
         { "samplerate", required_argument, 0, 'r' },
         { "bufsize", required_argument, 0, 'q' },
         { "nbchannels", required_argument, 0, 'c' },
@@ -89,7 +89,9 @@ int get_emitter_options(vban_stream_context_t* stream, int argc, char* argv[])
 
     while (c != -1) {
         switch (c) {
-        case 'm':
+        case 'm':// Multistream receptor server name)
+            memset(stream->servername, 0, VBAN_STREAM_NAME_SIZE);
+            memcpy(stream->servername, optarg, (strlen(optarg) > 32 ? 32 : strlen(optarg)));
             break;
         case 'i': // ip addr to filter / input pipe name
             if (stream->txport == 0) // PIPE mode
@@ -110,7 +112,7 @@ int get_emitter_options(vban_stream_context_t* stream, int argc, char* argv[])
         case 'p': // TX port to send
             stream->txport = atoi(optarg);
             break;
-        case 's': // Streamname (in multistream mode - receptor name)
+        case 's':
             memset(stream->tx_streamname, 0, VBAN_STREAM_NAME_SIZE);
             memcpy(stream->tx_streamname, optarg, (strlen(optarg) > VBAN_STREAM_NAME_SIZE ? VBAN_STREAM_NAME_SIZE : strlen(optarg)));
             break;

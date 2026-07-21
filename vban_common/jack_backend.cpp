@@ -10,10 +10,10 @@
 void help_emitter(void)
 {
     fprintf(stderr, "VBAN Jack Audio Connection Kit emitter for network and pipes/fifos\n\nBy Billy the Hippo\n\nusage: vban_emitter_jack <args>\r\n\n");
-    // fprintf(stderr, "-m - multistream mode on\r\n");
     fprintf(stderr, "-i - ip address or pipe name (default ip=0, default pipename - stdout)\r\n");
     fprintf(stderr, "-p - ip port (if 0 - pipe mode)\r\n");
     fprintf(stderr, "-s - Stream/Receptor name, up to 16 symbols\r\n");
+    fprintf(stderr, "-m - multistream receptor server name on\r\n");
     // fprintf(stderr, "-r - samplerate (default 48000)\r\n");
     // fprintf(stderr, "-q - quantum, buffer size (reserved)\r\n"); //Attention!!! Default is 128!!! Made for musicians.
     fprintf(stderr, "-c - number of channels/clients\r\n");
@@ -54,10 +54,10 @@ int get_emitter_options(vban_stream_context_t* stream, int argc, char* argv[])
     uint8_t rrr = 0;
     uint16_t nbcd = 0;
     static const struct option options[] = {
-        //{"multistream", required_argument,  0, 'm'},
         { "ipaddr", required_argument, 0, 'i' },
         { "port", required_argument, 0, 'p' },
         { "streamname", required_argument, 0, 's' },
+        { "servername", required_argument,  0, 'm'},
         { "samplerate", required_argument, 0, 'r' },
         { "bufsize", required_argument, 0, 'q' },
         { "nbchannels", required_argument, 0, 'c' },
@@ -79,8 +79,10 @@ int get_emitter_options(vban_stream_context_t* stream, int argc, char* argv[])
 
     while (c != -1) {
         switch (c) {
-        case 'm':
-            break;
+            case 'm':// Multistream receptor server name)
+                memset(stream->servername, 0, VBAN_STREAM_NAME_SIZE);
+                memcpy(stream->servername, optarg, (strlen(optarg) > 32 ? 32 : strlen(optarg)));
+                break;
         case 'i': // ip addr to filter / input pipe name
             if (stream->txport == 0) // PIPE mode
             {

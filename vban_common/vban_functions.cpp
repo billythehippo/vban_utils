@@ -1,6 +1,98 @@
 #include "vban_functions.h"
 #include <signal.h>
 
+int get_value_by_key(const char *source, const char *key, char *res, size_t res_size)
+{
+    if (!source || !key || !res || res_size == 0) return 0;
+    size_t key_len = strlen(key);
+    const char *ptr = source;
+    while ((ptr = strstr(ptr, key)) != NULL)
+    {
+        int left_ok = (ptr == source) || *(ptr - 1) == ' ' || *(ptr - 1) == ',' || *(ptr - 1) == ';';
+        int right_ok = (*(ptr + key_len) == '=');
+        if (left_ok && right_ok)
+        {
+            const char *val_start = ptr + key_len + 1;
+            char quote_char = '\0';
+            if (*val_start == '"' || *val_start == '\'')
+            {
+                quote_char = *val_start;
+                val_start++;
+            }
+            size_t val_len = 0;
+            if (quote_char != '\0') while (val_start[val_len] != '\0' && val_start[val_len] != quote_char) val_len++;
+            else while (val_start[val_len] != '\0' && val_start[val_len] != ' ' && val_start[val_len] != ',' && val_start[val_len] != ';') val_len++;
+            if (val_len >= res_size) return 0;
+            strncpy(res, val_start, val_len);
+            res[val_len] = '\0';
+            return 1;
+        }
+        ptr++;
+    }
+    return 0;
+}
+
+void scan_receptor(vban_stream_context_t* stream)
+{
+    uint ips[16];
+    uint ipnum = 0;
+    char rxname[32];
+    VBanPacket inforequest;
+    VBanPacket info;
+    memset(&inforequest, 0, sizeof(VBanPacket));
+    inforequest.header.vban = VBAN_HEADER_FOURC;
+    inforequest.header.format_SR = VBAN_PROTOCOL_TXT;
+    strcat(inforequest.header.streamname, "INFO");
+    strcat(inforequest.data, "/info");
+    memset(&info, 0, sizeof(VBanPacket));
+    memset(ips, 0, 16 * sizeof(int));
+    getipaddresses(ips, &ipnum);
+    while(stream->iptx == 0)
+    {
+        sleep(1);
+        for (uint i = 0; i < ipnum; i++)
+        {
+            uint32_t from_ip = ips[i];
+            fprintf(stderr, "%d.%d.%d.%d\r\n", ((uint8_t*)&from_ip)[0], ((uint8_t*)&from_ip)[1], ((uint8_t*)&from_ip)[2], ((uint8_t*)&from_ip)[3]);
+        }
+        for (uint i = 1; i < ipnum; i++)
+        {
+            udp_send(stream->txsock, stream->txport, (char*)&inforequest, VBAN_HEADER_SIZE + 5, ips[i]|0xFF000000);
+            int received = 1500;
+            while(poll(stream->pd, 1, 100) > 0 && (stream->pd[0].revents & POLLIN) && received > 0)
+            {
+                received = udp_recv(stream->txsock, &info, VBAN_PROTOCOL_MAX_SIZE);
+                if (received > VBAN_HEADER_SIZE && info.header.vban == VBAN_HEADER_FOURC && (info.header.format_SR&VBAN_PROTOCOL_MASK) == VBAN_PROTOCOL_TXT)
+                {
+                    uint32_t from_ip = stream->txsock->c_addr.sin_addr.s_addr;
+                    uint ind = 0;
+                    for (ind = 0; ind < ipnum; ind++) if (from_ip == ips[ind]) break;
+                    if (ind == ipnum)
+                    {
+                        memset(rxname, 0, 32);
+                        if (stream->servername[0]!= 0)
+                        {
+                            ;
+                        }
+                        else
+                        {
+                            get_value_by_key(info.data, "streamnamerx", rxname, sizeof(rxname));
+                            fprintf(stderr, "Streamnames: there %s, here %s\r\n", rxname, stream->tx_streamname);
+                            if (strncmp(stream->tx_streamname, rxname, strlen(rxname)) == 0)
+                            {
+                                stream->iptx = from_ip;
+                                fprintf(stderr, "Receptor found on %d.%d.%d.%d\r\n", ((uint8_t*)&from_ip)[0], ((uint8_t*)&from_ip)[1], ((uint8_t*)&from_ip)[2], ((uint8_t*)&from_ip)[3]);
+                                //i = ipnum;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 int parse_passport(const char* input, uint32_t* ip, uint16_t* port)
 {
     fprintf(stderr, "%s\r\n", input);
@@ -162,6 +254,7 @@ void* rxThread(void* arg)
     int packetlen;
     int datalen;
     uint32_t ip_in = 0;
+    uint8_t handle_packet = 0;
     // uint16_t port_in = 0;
 
     fprintf(stderr, "rxThread started\r\n");
@@ -175,33 +268,59 @@ void* rxThread(void* arg)
                 packetlen = udp_recv(stream->rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE);
 #else
                 packetlen = udp_recv_m(stream->rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE, &stream->input_ts);
+                //packetlen = udp_recv(stream->rxsock, &packet, VBAN_PROTOCOL_MAX_SIZE);
 #endif
                 ip_in = stream->rxsock->c_addr.sin_addr.s_addr;
                 stream->ansport = htons(stream->rxsock->c_addr.sin_port);
-                if (((packet.header.format_SR & VBAN_PROTOCOL_MASK) == VBAN_PROTOCOL_AUDIO) || ((packet.header.format_SR & VBAN_PROTOCOL_MASK) == VBAN_PROTOCOL_SERIAL)) {
-                    if (stream->iprx == 0) // stream->iprx = ip_in;
+                if ((packet.header.format_SR & VBAN_PROTOCOL_MASK) == VBAN_PROTOCOL_AUDIO || (packet.header.format_SR & VBAN_PROTOCOL_MASK) == VBAN_PROTOCOL_SERIAL)
+                {
+                    if (stream->iprx == ip_in && memcmp(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE) == 0) handle_packet = 1;
+                    else if (stream->iprx == 0 && stream->rx_streamname[0] == 0) // IP 0, streamname empty
                     {
-                        if (strncmp(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE) == 0)
-                            stream->iprx = ip_in;
-                        else if (stream->rx_streamname[0] == 0) {
-                            strncpy(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE);
-                            stream->iprx = ip_in;
-                        }
-                    } else if ((stream->iprx == ip_in) && (stream->rx_streamname[0] == 0))
+                        stream->iprx = ip_in;
                         strncpy(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE);
+                    }
+                    else if (stream->iprx == ip_in && stream->rx_streamname[0] == 0) // IP matches, streamname empty
+                       strncpy(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE);
+                    else if (stream->iprx == 0 && memcmp(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE) == 0) // IP 0, streamname matches
+                       stream->iprx = ip_in;
+                    // if (stream->iprx == 0) // stream->iprx = ip_in;
+                    // {
+                    //     if (strncmp(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE) == 0)
+                    //         stream->iprx = ip_in;
+                    //     else if (stream->rx_streamname[0] == 0)
+                    //     {
+                    //         strncpy(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE);
+                    //         stream->iprx = ip_in;
+                    //     }
+                    // }
+                    // else if ((stream->iprx == ip_in) && (stream->rx_streamname[0] == 0))
+                    //     strncpy(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE);
                 }
-            } else {
+                else
+                {
+                    ip_in = stream->rxsock->c_addr.sin_addr.s_addr;
+                    stream->ansport = htons(stream->rxsock->c_addr.sin_port);
+                    handle_packet = 1;
+                }
+            }
+            else
+            {
                 stream->input_ts = ts;
                 packetlen = read(stream->pd[0].fd, &packet, VBAN_HEADER_SIZE);
-                if (((packet.header.format_SR & VBAN_PROTOCOL_MASK) == VBAN_PROTOCOL_AUDIO) || ((packet.header.format_SR & VBAN_PROTOCOL_MASK) == VBAN_PROTOCOL_TXT)) {
+                if (((packet.header.format_SR & VBAN_PROTOCOL_MASK) == VBAN_PROTOCOL_AUDIO) || ((packet.header.format_SR & VBAN_PROTOCOL_MASK) == VBAN_PROTOCOL_TXT))
+                {
                     datalen = VBanBitResolutionSize[packet.header.format_bit & VBAN_BIT_RESOLUTION_MASK] * (packet.header.format_nbc + 1) * (packet.header.format_nbs + 1);
                     if (datalen == read(stream->pd[0].fd, packet.data, datalen))
                         packetlen += datalen;
                     if (stream->rx_streamname[0] == 0)
                         strncpy(stream->rx_streamname, packet.header.streamname, VBAN_STREAM_NAME_SIZE);
                 }
+                if ((packetlen >= VBAN_HEADER_SIZE) && (packet.header.vban == VBAN_HEADER_FOURC)) handle_packet = 1;
             }
-            if ((packetlen >= VBAN_HEADER_SIZE) && (packet.header.vban == VBAN_HEADER_FOURC)) {
+            if (handle_packet)
+            {
+                handle_packet = 0;
                 vban_rx_handle_packet(&packet, packetlen, stream, ip_in, stream->ansport);
                 memset(&packet, 0, sizeof(VBanPacket));
             }

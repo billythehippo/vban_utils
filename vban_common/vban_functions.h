@@ -217,6 +217,8 @@ typedef struct vban_multistream_context_t {
 
 #define CMD_SIZE 300
 
+int get_value_by_key(const char *source, const char *key, char *res, size_t res_size);
+void scan_receptor(vban_stream_context_t* stream);
 int parse_passport(const char* input, uint32_t* ip, uint16_t* port);
 void vban_fill_receptor_info(vban_stream_context_t* context);
 void tune_tx_packets(vban_stream_context_t* stream);

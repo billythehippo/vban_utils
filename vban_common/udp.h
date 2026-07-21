@@ -67,7 +67,7 @@ inline int udp_recv(udpc_t* c, void* data, size_t n)
 #ifdef __linux__
 inline int udp_recv_m(udpc_t* c, void* data, size_t n, struct timespec *timestamps = NULL)
 {
-	struct sockaddr_storage src_addr;
+    struct sockaddr_storage src_addr;
     struct msghdr msg;
     char control_buf[CMSG_SPACE(sizeof(struct sock_extended_err)) + CMSG_SPACE(sizeof(struct scm_timestamping))];
     struct iovec iov;
@@ -85,7 +85,7 @@ inline int udp_recv_m(udpc_t* c, void* data, size_t n, struct timespec *timestam
 
     ssize_t ret = recvmsg(c->fd, &msg, 0); //MSG_ERRQUEUE | MSG_PEEK
     if (ret < 0) return -1;
-	if (!(msg.msg_flags & MSG_CTRUNC) && src_addr.ss_family == AF_INET) c->c_addr = *(struct sockaddr_in*)&src_addr;
+    if (!(msg.msg_flags & MSG_CTRUNC) && src_addr.ss_family == AF_INET) c->c_addr = *(struct sockaddr_in*)&src_addr;
 
     for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg))
     {
