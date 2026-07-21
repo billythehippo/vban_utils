@@ -90,7 +90,7 @@ int main(int argc, char *argv[])
 
     if (stream.txport!=0) // UDP tx mode
     {
-        stream.txsock = udp_init(0, stream.txport, NULL, stream.iptxaddr, 0, 6, 1);
+        stream.txsock = udp_init(0, stream.txport, NULL, stream.iptxaddr, 1000, 6, 1);
         if (stream.txsock==NULL)
         {
             fprintf(stderr, "Cannot init UDP socket!\r\n");
@@ -99,7 +99,9 @@ int main(int argc, char *argv[])
 #ifdef __linux__
         set_recverr(stream.txsock->fd);
 #endif
-        //stream.pd[0].fd = stream.txsock->fd;
+        stream.pd[0].fd = stream.txsock->fd;
+        stream.pd[0].events = POLLIN;
+        if (stream.tx_streamname[0] != 0 && stream.iptx == 0) scan_receptor(&stream);
     }
     else // PIPE tx mode
     {
@@ -111,7 +113,8 @@ int main(int argc, char *argv[])
         }
         else stream.pipedesc = 1; // stdout
 		//if (stream.pipedesc == 1) setvbuf(stdout, NULL, _IONBF, 0);
-        //stream.pd[0].fd = stream.pipedesc;
+        stream.pd[0].fd = stream.pipedesc;
+        stream.pd[0].events = POLLIN;
 		fprintf(stderr, "write socket descriptor %d for %s\r\n", stream.pipedesc, stream.pipename);
     }
 
