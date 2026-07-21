@@ -3,6 +3,7 @@
 #include "../vban_common/udp.h"
 #include "../vban_common/vban_client_list.h"
 
+
 int main(int argc, char *argv[])
 {
     vban_stream_context_t stream;
@@ -19,7 +20,7 @@ int main(int argc, char *argv[])
 
     if (stream.txport!=0) // UDP tx mode
     {
-        stream.txsock = udp_init(0, stream.txport, NULL, stream.iptxaddr, 0, 6, 1);
+        stream.txsock = udp_init(0, stream.txport, NULL, stream.iptxaddr, 1000, 6, 1);
         if (stream.txsock==NULL)
         {
             fprintf(stderr, "Cannot init UDP socket!\r\n");
@@ -27,6 +28,8 @@ int main(int argc, char *argv[])
         }
         set_recverr(stream.txsock->fd);
         stream.pd[0].fd = stream.txsock->fd;
+        stream.pd[0].events = POLLIN;
+        if (stream.tx_streamname[0] != 0 && stream.iptx == 0) scan_receptor(&stream);
     }
     else // PIPE tx mode
     {
@@ -37,6 +40,7 @@ int main(int argc, char *argv[])
         }
         else stream.pipedesc = 0; // stdin
         stream.pd[0].fd = stream.pipedesc;
+        stream.pd[0].events = POLLIN;
     }
 
     //Create stream
