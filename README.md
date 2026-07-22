@@ -27,10 +27,11 @@ Enjoy! They just work!
 Also you can use unix-pipes (named, stdin/stdout) instead of network sockets
 (VBAN packet format presents).
 
+ALSA UTIL (thanks for Fons Adriaensen again) - instruction for build and run coming soon!
+
 TODO:
-1. ALSA ones for Linux (coming soon, thanks to Gary P. Scavone),
-2. Virtual soundcards for Mac OS (also coming soon, thanks to Victor Gaydov),
-3. GUI versions or manager (if anybody helps - it will be really cool!),
-4. LV2 vanilla plugins with WebGUI.
+1. Virtual soundcards for Mac OS (also coming soon, thanks to Victor Gaydov),
+2. GUI versions or manager (if anybody helps - it will be really cool!),
+3. LV2 vanilla plugins with WebGUI.
 
 See also https://github.com/billythehippo/VBANEmitter.vst3 and https://github.com/billythehippo/VBANReceptor.vst3
